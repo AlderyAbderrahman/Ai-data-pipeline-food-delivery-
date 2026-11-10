@@ -1,0 +1,75 @@
+. Storage classes — correct
+S3 offers different storage classes depending on how frequently data is accessed, how quickly it needs to be retrieved, and the cost trade-offs.
+For example:
+- S3 Standard: Frequently accessed data, such as files used by active pipelines.
+- S3 Standard-IA: Infrequently accessed data that still needs relatively fast retrieval.
+- S3 Glacier classes: Long-term archival data with different retrieval options and delays.
+Engineering example: Keep the latest files used by your daily pipeline in Standard and move old raw data into a suitable archival class if your retention policy allows it.
+Important: cheaper storage can involve retrieval charges, minimum storage durations, or other restrictions. You don't necessarily need to choose a storage class manually for every file; lifecycle rules can automate transitions.
+
+
+
+
+B. Versioning — mostly correct
+Versioning preserves multiple versions of the same object key.
+Imagine you upload raw/orders.csv today and replace it tomorrow. With versioning enabled, S3 can retain the previous version as well as the new one.
+This helps recover from accidental overwrites and deletions. However, versioning does not automatically compare CSV rows, track individual database-record changes, or tell you what changed inside a file.
+Engineering example: Recover yesterday's source file if an upstream export accidentally overwrites it with an incomplete dataset.
+Remember that retained versions consume storage and may incur charges.
+
+
+
+
+C. Access management and security — correct, but broader than read/write
+S3 access control determines who or what can perform which actions on which resources.
+For example:
+- An ingestion service can upload objects.
+- Snowflake can read approved objects.
+- An analyst may be denied direct access to raw customer files.
+AWS IAM policies, S3 bucket policies, and other controls can work together. Public access blocking and least-privilege permissions are important safeguards.
+In your project, the S3-to-Snowflake storage integration is where this becomes practical: Snowflake gets authorized access without you embedding permanent AWS access keys in the pipeline.
+
+
+
+
+D. Encryption — important correction
+Encryption doesn't simply mean encrypting data while it is being sent. There are two distinct concepts:
+- Encryption at rest: Protects stored objects. S3 encrypts new uploads at rest by default using S3-managed encryption in most standard configurations.
+- Encryption in transit: Protects data while moving between systems, typically through HTTPS/TLS.
+You can also use AWS KMS-managed encryption keys for additional key-management controls, depending on your requirements.
+Engineering example: Encrypt raw delivery data at rest and require secure connections when applications upload or download it.
+
+
+
+
+E. Replication — correct
+S3 can automatically replicate objects from a source bucket to a destination bucket, potentially across AWS Regions or accounts.
+Common reasons include disaster recovery, regulatory requirements, and maintaining a separate copy of data.
+Replication is not the same as versioning or backup. Its configuration, scope, and handling of existing objects matter, and deletions or other changes do not always behave like a perfect mirror.
+Engineering example: Replicate critical raw data to a separate account or Region to improve resilience.
+
+
+
+
+F. Transfer Acceleration — your main misconception
+This is not about buying more CPU resources.
+S3 Transfer Acceleration can speed up long-distance uploads by routing data through AWS edge locations and the AWS network toward the destination bucket.
+It is useful for certain geographically distributed upload scenarios, but it isn't automatically faster or cheaper for every workload.
+Engineering example: A company uploading large datasets from clients around the world might evaluate Transfer Acceleration if ordinary uploads are too slow.
+
+
+
+
+G. Static website hosting — correct
+S3 can serve static website files such as HTML, CSS, JavaScript, and images.
+It does not run backend application code in the way a server does. A dynamic application usually needs a backend service or other AWS components.
+For your data engineering project, this feature is optional and unrelated to the core S3-to-Snowflake ingestion workflow.
+
+
+Snowflake is a cloud data warehouse that stores and processes structured data using SQL. In my Zomato project, Amazon S3 stores the raw CSV files, Snowflake loads them into the Bronze layer, dbt transforms and tests the data through Silver and Gold, and Streamlit serves the resulting data to users. Snowflake organizes data through databases, schemas, tables, and views. Its virtual warehouses provide the compute power needed to load, transform, and query data; they can be started, suspended, resized, and scaled according to workload requirements. Authentication verifies identity, while roles and privileges control access. At this stage, I should focus on SQL, 
+Snowflake's object hierarchy, S3 loading, basic warehouse management, and access control before studying advanced optimization.
+
+
+
+
+set-up.sql : This SQL script prepares the Snowflake environment; it doesn't load data yet. First, it creates ZOMATO_WH, a small virtual warehouse that provides compute and automatically suspends after 60 seconds of inactivity to save credits. Then it creates the ZOMATO database and several schemas that organize the project according to its data lifecycle: BRONZE for Iceberg/near-raw data, RAW for the fallback CSV-loading path, STAGING for dbt cleaning, MARTS for Gold/business data, SNAPSHOTS for historical SCD2 data, and AI for AI-enriched datasets. Finally, it creates DBT_ROLE and gives it permissions on the warehouse, database, schemas, and future tables/views. The purpose is security: dbt and Airflow should eventually work through a controlled role rather than using the powerful ACCOUNTADMIN role. The next major concept after this setup is how S3 connects to Snowflake through a storage integration and external stage, which is what will actually allow your CSV files to move from your S3 data lake into Snowflake.
